@@ -1,4 +1,6 @@
-set(component_srcs "rf_descrambler.c")
+set(component_srcs  "rfid_scrambler.c"
+                    "rfid_descrambler.c" 
+                    )
 
 idf_component_register(SRCS "${component_srcs}"
                        INCLUDE_DIRS .
