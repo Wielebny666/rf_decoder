@@ -8,11 +8,13 @@
 /*********************
  *      INCLUDES
  *********************/
+#include <string.h>
 #include <stdlib.h>
 #include <sys/cdefs.h>
 
 #include "esp_log.h"
 #include "driver/rmt.h"
+#include "ringbuffer.h"
 
 #include "rf_tool.h"
 #include "rf_timings.h"
@@ -30,11 +32,10 @@ typedef struct
     rf_descrambler_t parent;
     uint32_t flags;
     uint32_t logic_ticks;
-    uint32_t logic1_ticks;
     uint32_t margin_ticks;
     rmt_item32_t *buffer;
+    uint32_t buffer_len;
     uint32_t cursor;
-    uint32_t bit_cnt;
 } rfid_descrambler_t;
 
 /**********************
@@ -45,6 +46,7 @@ typedef struct
  *  STATIC VARIABLES
  **********************/
 static const char *TAG = "rfid_descrambler";
+static ringbuffer_t ringbuffer;
 
 /**********************
  *      MACROS
@@ -63,56 +65,41 @@ static const char *TAG = "rfid_descrambler";
 /**********************
  *   STATIC FUNCTIONS
  **********************/
-static inline bool rfid_check_in_range(uint32_t raw_ticks, uint32_t target_ticks, uint32_t margin_ticks)
+static inline bool rfid_check_in_range(rfid_descrambler_t *descrambler, uint32_t duration)
 {
-    return (raw_ticks < (target_ticks + margin_ticks)) && (raw_ticks > (target_ticks - margin_ticks));
+    return (duration < (descrambler->logic_ticks + descrambler->margin_ticks)) && (duration > (descrambler->logic_ticks - descrambler->margin_ticks));
 }
 
-static bool rfid_descrambler_logic_lvl(rfid_descrambler_t *descrambler)
+static inline bool rfid_check_in_range2(rfid_descrambler_t *descrambler, uint32_t duration, uint8_t *cnt)
 {
-    bool ret;
-    rmt_item32_t item = descrambler->buffer[descrambler->cursor];
-    if (!(descrambler->bit_cnt % 2))
+    CHECK(cnt, ESP_ERR_INVALID_ARG, "cnt can't be null");
+
+    for (uint8_t i = 1; i <= 8; i++)
     {
-        ret = (item.level0 == true) && rfid_check_in_range(item.duration0, descrambler->logic_ticks, descrambler->margin_ticks);
+        if ((duration < (descrambler->logic_ticks * i + descrambler->margin_ticks)) && (duration > (descrambler->logic_ticks * i - descrambler->margin_ticks)))
+        {
+            *cnt = i;
+            return true;
+        }
     }
-    else
-    {
-        ret = (item.level1 == true) && rfid_check_in_range(item.duration1, descrambler->logic_ticks, descrambler->margin_ticks);
-        descrambler->cursor += 1;
-    }
-
-    descrambler->bit_cnt++;
-    return ret;
-}
-
-static esp_err_t rfid_descrambler_logic(rf_descrambler_t *descrambler, bool *logic)
-{
-    esp_err_t ret = ESP_FAIL;
-    bool logic_value = false;
-    rfid_descrambler_t *rfid_parser = __containerof(descrambler, rfid_descrambler_t, parent);
-
-    logic_value = rfid_descrambler_logic_lvl(rfid_parser);
-    ret = ESP_OK;
-
-    if (ret == ESP_OK)
-    {
-        *logic = logic_value;
-    }
-
-    return ret;
+    *cnt = 0;
+    return false;
 }
 
 static esp_err_t rfid_descrambler_input(rf_descrambler_t *descrambler, void *raw_data, uint32_t length)
 {
+    ESP_LOGD(TAG, "%s", __FUNCTION__);
     CHECK(raw_data, ESP_ERR_INVALID_ARG, "input data can't be null");
+    ESP_LOGD(TAG, "RMT length %d", length);
+
     esp_err_t ret = ESP_OK;
     rfid_descrambler_t *rfid_descrambler = __containerof(descrambler, rfid_descrambler_t, parent);
     rfid_descrambler->buffer = raw_data;
+    rfid_descrambler->buffer_len = length;
 
     if (length > RFID_MAX_FRAME_RMT_WORDS)
     {
-        ret = ESP_FAIL;
+        //ret = ESP_FAIL;
     }
     return ret;
 }
@@ -120,16 +107,165 @@ static esp_err_t rfid_descrambler_input(rf_descrambler_t *descrambler, void *raw
 static esp_err_t rfid_descrambler_get_scan_code(rf_descrambler_t *descrambler, uint8_t *signal)
 {
     esp_err_t ret = ESP_FAIL;
-    uint32_t descr_signal = 0;
-    bool logic_value = false;
+    uint8_t descramble_signal = 0;
 
     CHECK(signal, ESP_ERR_INVALID_ARG, "can't be null");
 
-    rfid_descrambler_t *rfid_parser = __containerof(descrambler, rfid_descrambler_t, parent);
-
-    if (rfid_descrambler_logic(descrambler, &logic_value) == ESP_OK)
+    rfid_descrambler_t *rfid_descrambler = __containerof(descrambler, rfid_descrambler_t, parent);
+    for (int i = 0; i < rfid_descrambler->buffer_len; i++)
     {
+        if (rfid_check_in_range(rfid_descrambler, rfid_descrambler->buffer[i].duration0))
+        {
+            descramble_signal <<= 1;
+            descramble_signal |= rfid_descrambler->buffer[i].level0;
+            if (rfid_check_in_range(rfid_descrambler, rfid_descrambler->buffer[i].duration1))
+            {
+                descramble_signal <<= 1;
+                descramble_signal |= rfid_descrambler->buffer[i].level1;
+            }
+            else
+            {
+                ESP_LOGD(TAG, "Error at %d", i);
+                ESP_LOGD(TAG, "level0: %d duration0: %d", rfid_descrambler->buffer[i].level0, rfid_descrambler->buffer[i].duration0);
+                ESP_LOGD(TAG, "level0: %d duration0: %d", rfid_descrambler->buffer[i].level1, rfid_descrambler->buffer[i].duration1);
+                return ret;
+            }
+        }
+        else
+        {
+            ESP_LOGD(TAG, "Error at %d", i);
+            ESP_LOGD(TAG, "level0: %d duration0: %d", rfid_descrambler->buffer[i].level0, rfid_descrambler->buffer[i].duration0);
+            ESP_LOGD(TAG, "level0: %d duration0: %d", rfid_descrambler->buffer[i].level1, rfid_descrambler->buffer[i].duration1);
+            return ret;
+        }
+
+        if (i > 0 && !(i % 7))
+        {
+            *signal = descramble_signal;
+            signal++;
+            descramble_signal = 0;
+        }
     }
+    ret = ESP_OK;
+    return ret;
+}
+
+static esp_err_t rfid_descrambler_get_scan_code2(rf_descrambler_t *descrambler, uint8_t *signal)
+{
+    esp_err_t ret = ESP_FAIL;
+    uint8_t descramble_signal = 0;
+    uint8_t cnt = 0;
+    uint8_t cursor = 0;
+    CHECK(signal, ESP_ERR_INVALID_ARG, "can't be null");
+
+    // if (!ringbuffer_init(&ringbuffer, signal, sizeof(uint8_t), 512, memcpy))
+    // {
+    //     ESP_LOGD(TAG, "ringbuff init fail");
+    // }
+
+    rfid_descrambler_t *rfid_descrambler = __containerof(descrambler, rfid_descrambler_t, parent);
+
+    rfid_descrambler->cursor = 0;
+
+    for (int i = 0; i < rfid_descrambler->buffer_len; i++)
+    {
+        // if (!ringbuffer_length_available(&ringbuffer))
+        // {
+        //     ESP_LOGD(TAG, "Ringbuffer full at %d", i);
+        // ESP_LOGD(TAG, "%d level0: %d duration0: %d", i, rfid_descrambler->buffer[i].level0, rfid_descrambler->buffer[i].duration0);
+        // ESP_LOGD(TAG, "%d level1: %d duration1: %d", i, rfid_descrambler->buffer[i].level1, rfid_descrambler->buffer[i].duration1);
+        //     return ret;
+        // }
+
+        if (rfid_check_in_range2(rfid_descrambler, rfid_descrambler->buffer[i].duration0, &cnt))
+        {
+            while (cnt--)
+            {
+                //ESP_LOGD(TAG, "%d - %d duration0: %d cnt: %d", i, rfid_descrambler->buffer[i].level0, rfid_descrambler->buffer[i].duration0, cnt);
+                descramble_signal <<= 1;
+                descramble_signal |= rfid_descrambler->buffer[i].level0;
+
+                if (cursor == 7)
+                {
+                    *signal = descramble_signal;
+                    signal++;
+                    descramble_signal = 0;
+                    cursor = 0;
+                }
+                else
+                {
+                    cursor++;
+                }
+
+                //test(&rfid_descrambler->cursor, &signal_p, &descramble_signal);
+                // uint8_t tmp = rfid_descrambler->buffer[i].level0;
+                // ringbuffer_append(&ringbuffer, &tmp);
+            }
+
+            if (rfid_check_in_range2(rfid_descrambler, rfid_descrambler->buffer[i].duration1, &cnt))
+            {
+
+                while (cnt--)
+                {
+                    //ESP_LOGD(TAG, "%d - %d duration1: %d cnt: %d", i, rfid_descrambler->buffer[i].level1, rfid_descrambler->buffer[i].duration1, cnt);
+                    descramble_signal <<= 1;
+                    descramble_signal |= rfid_descrambler->buffer[i].level1;
+
+                    if (cursor == 7)
+                    {
+                        *signal = descramble_signal;
+                        signal++;
+                        descramble_signal = 0;
+                        cursor = 0;
+                    }
+                    else
+                    {
+                        cursor++;
+                    }
+                    // uint8_t tmp = rfid_descrambler->buffer[i].level1;
+                    // ringbuffer_append(&ringbuffer, &tmp);
+                }
+            }
+            else if (rfid_descrambler->buffer[i].duration1 == 0)
+            {
+                descramble_signal <<= 1;
+                descramble_signal |= rfid_descrambler->buffer[i].level1;
+
+                *signal = descramble_signal;
+                ESP_LOGD(TAG, "End...");
+                break;
+            }
+            else
+            {
+                if (i < 4)
+                {
+                    descramble_signal = 0;
+                    cursor = 0;
+                    i = 3;
+                    continue;
+                }
+                ESP_LOGE(TAG, "Error at %d", i);
+                ESP_LOGE(TAG, "level0: %d duration0: %d", rfid_descrambler->buffer[i].level0, rfid_descrambler->buffer[i].duration0);
+                ESP_LOGE(TAG, "level0: %d duration0: %d", rfid_descrambler->buffer[i].level1, rfid_descrambler->buffer[i].duration1);
+                return ESP_FAIL;
+            }
+        }
+        else
+        {
+            if (i < 4)
+            {
+                descramble_signal = 0;
+                cursor = 0;
+                i = 3;
+                continue;
+            }
+            ESP_LOGE(TAG, "Error at %d", i);
+            ESP_LOGE(TAG, "level0: %d duration0: %d", rfid_descrambler->buffer[i].level0, rfid_descrambler->buffer[i].duration0);
+            ESP_LOGE(TAG, "level0: %d duration0: %d", rfid_descrambler->buffer[i].level1, rfid_descrambler->buffer[i].duration1);
+            return ESP_FAIL;
+        }
+    }
+    ret = ESP_OK;
     return ret;
 }
 
@@ -147,13 +283,20 @@ rf_descrambler_t *rfid_descrambler_create(const rf_descrambler_config_t *config)
 
     rfid_descrambler->flags = config->flags;
 
-    uint32_t counter_clk_hz = 80000000 / 2;
-    //rmt_get_counter_clock((rmt_channel_t)config->dev_hdl, &counter_clk_hz);
+    uint8_t counter_clk_div;
+    rmt_get_clk_div((rmt_channel_t)config->dev_hdl, &counter_clk_div);
+    ESP_LOGD(TAG, "RMT clk div %d", counter_clk_div);
+    uint32_t counter_clk_hz = APB_CLK_FREQ / counter_clk_div;
     float ratio = (float)counter_clk_hz / 1e6;
-    rfid_descrambler->pulse_duration_ticks = (uint32_t)(ratio * RFID_PULSE_DURATION_US);
+
+    uint32_t duration = (uint32_t)(ratio * RFID_PULSE_DURATION_US);
+    CHECK((duration < 0x7FFF), ret, "CHANGE DIV CLOCK");
+    ESP_LOGD(TAG, "duration %d", duration);
+
+    rfid_descrambler->logic_ticks = (uint32_t)(ratio * RFID_PULSE_DURATION_US);
     rfid_descrambler->margin_ticks = (uint32_t)(ratio * config->margin_us);
     rfid_descrambler->parent.input = rfid_descrambler_input;
-    rfid_descrambler->parent.get_scan_code = rfid_descrambler_get_scan_code;
+    rfid_descrambler->parent.get_scan_code = rfid_descrambler_get_scan_code2;
     rfid_descrambler->parent.del = rfid_descrambler_del;
     return &rfid_descrambler->parent;
 

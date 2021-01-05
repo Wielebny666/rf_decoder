@@ -22,17 +22,17 @@ extern "C"
  *      DEFINES
  *********************/
 #define RF_SCRAMBLER_DEFAULT_CONFIG(dev) \
-    {                                   \
-        .buffer_size = 64,              \
-        .dev_hdl = dev,                 \
-        .flags = 0,                     \
+    {                                    \
+        .dev_hdl = dev,                  \
+        .flags = 0,                      \
+        .buffer_size = 128,              \
     }
 
 #define RF_DESCRAMBLER_DEFAULT_CONFIG(dev) \
-    {                                   \
-        .margin_us = 10,              \
-        .dev_hdl = dev,                 \
-        .flags = 0,                     \
+    {                                      \
+        .dev_hdl = dev,                    \
+        .flags = 0,                        \
+        .margin_us = 60,                   \
     }
 
 /**********************
@@ -42,8 +42,9 @@ typedef void *rf_dev_t;
 typedef struct rf_scrambler_s rf_scrambler_t;
 typedef struct rf_descrambler_s rf_descrambler_t;
 
-typedef struct 
+typedef struct
 {
+    uint8_t carrier_burst_len;
     uint8_t preamble_pattern;
     uint8_t preamble_len;
     uint32_t sync;
@@ -67,7 +68,7 @@ struct rf_scrambler_s
 struct rf_descrambler_s
 {
     esp_err_t (*input)(rf_descrambler_t *descrambler, void *raw_data, uint32_t length);
-    esp_err_t (*get_scan_code)(rf_descrambler_t *descrambler, uint32_t *sync, uint32_t *crc);
+    esp_err_t (*get_scan_code)(rf_descrambler_t *descrambler, uint8_t *signal);
     esp_err_t (*del)(rf_descrambler_t *decoder);
 };
 
