@@ -20,8 +20,9 @@ extern "C"
 /*********************
  *      DEFINES
  *********************/
-//#define RFID_PULSE_DURATION_US (208)
-#define RFID_PULSE_DURATION_US (300)
+//#define RFID_PULSE_DURATION_US (28)
+//#define RFID_PULSE_DURATION_US (300) // 3.3kb
+#define RFID_PULSE_DURATION_US (104) // 9.6kb
 
 /**********************
  *      TYPEDEFS

@@ -16,7 +16,7 @@ extern "C"
 /*********************
  *      INCLUDES
  *********************/
-#include "esp_err.h"
+// #include "esp_err.h"
 
 /*********************
  *      DEFINES
@@ -47,7 +47,8 @@ typedef struct
     uint8_t carrier_burst_len;
     uint8_t preamble_pattern;
     uint8_t preamble_len;
-    uint32_t sync;
+    uint8_t *sync;
+    uint8_t sync_len;
     uint8_t *payload;
     uint8_t payload_len;
     uint16_t crc;
@@ -57,7 +58,7 @@ struct rf_scrambler_s
 {
     esp_err_t (*make_logic)(rf_scrambler_t *scrambler, bool value);
     esp_err_t (*make_preamble)(rf_scrambler_t *scrambler, uint8_t preamble_pattern, uint8_t preamble_len);
-    esp_err_t (*make_sync)(rf_scrambler_t *scrambler, uint32_t sync);
+    esp_err_t (*make_sync)(rf_scrambler_t *scrambler, uint8_t *sync, uint8_t sync_len);
     esp_err_t (*make_payload)(rf_scrambler_t *scrambler, uint8_t *payload, uint8_t payload_len);
     esp_err_t (*make_crc)(rf_scrambler_t *scrambler, uint16_t crc);
     esp_err_t (*build_frame)(rf_scrambler_t *scrambler, rf_frame_t rf_frame);

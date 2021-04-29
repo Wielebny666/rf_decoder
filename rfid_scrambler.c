@@ -12,6 +12,7 @@
 
 #include "driver/rmt.h"
 #include "esp_log.h"
+#include "esp_err.h"
 
 #include "rf_tool.h"
 #include "rf_timings.h"
@@ -93,6 +94,16 @@ inline esp_err_t rfid_scrambler_make_logic(rf_scrambler_t *scrambler, bool value
     return ESP_OK;
 }
 
+static esp_err_t rfid_scrambler_make_pasue(rf_scrambler_t *scrambler)
+{
+    //CHECK(scrambler, ESP_ERR_INVALID_ARG, "scrambler pointer can't be null");
+
+    rfid_scrambler_t *rfid_scrambler = __containerof(scrambler, rfid_scrambler_t, parent);
+
+    rfid_scrambler_make_logic(scrambler, false);
+    return ESP_OK;
+}
+
 static esp_err_t rfid_scrambler_make_byte(rf_scrambler_t *scrambler, void *value, uint8_t len)
 {
     //ESP_LOGD(TAG, "%s", __FUNCTION__);
@@ -104,7 +115,7 @@ static esp_err_t rfid_scrambler_make_byte(rf_scrambler_t *scrambler, void *value
 
     while (point)
     {
-        // ESP_LOGD(TAG, "val %d - "BYTE_TO_BINARY_PATTERN, *(pattern + len), BYTE_TO_BINARY(*(pattern + len)));
+        //ESP_LOGD(TAG, "val %x - "BYTE_TO_BINARY_PATTERN, *(pattern + len - point), BYTE_TO_BINARY(*(pattern + len - point)));
         for (uint8_t i = 0; i < 8; i++)
         {
             bool bit_value = *(pattern + len - point) & (1 << (7 - i));
@@ -144,11 +155,12 @@ static esp_err_t rfid_scrambler_make_preamble(rf_scrambler_t *scrambler, uint8_t
     return ESP_OK;
 }
 
-static esp_err_t rfid_scrambler_make_sync(rf_scrambler_t *scrambler, uint32_t sync)
+static esp_err_t rfid_scrambler_make_sync(rf_scrambler_t *scrambler, uint8_t *sync, uint8_t sync_len)
 {
     ESP_LOGD(TAG, "%s", __FUNCTION__);
+
     rfid_scrambler_t *rfid_scrambler = __containerof(scrambler, rfid_scrambler_t, parent);
-    rfid_scrambler_make_byte(scrambler, &sync, sizeof(sync));
+    rfid_scrambler_make_byte(scrambler, sync, sync_len);
     return ESP_OK;
 }
 
@@ -171,15 +183,16 @@ static esp_err_t rfid_scrambler_make_crc(rf_scrambler_t *scrambler, uint16_t crc
 static esp_err_t rfid_scrambler_build_frame(rf_scrambler_t *scrambler, rf_frame_t rf_frame)
 {
     ESP_LOGD(TAG, "%s", __FUNCTION__);
-    CHECK(rf_frame.preamble_len, ESP_ERR_INVALID_ARG, "preamble_len can't be null");
-    CHECK(rf_frame.payload_len, ESP_ERR_INVALID_ARG, "payload_len can't be null");
+    //CHECK(rf_frame.preamble_len, ESP_ERR_INVALID_ARG, "preamble_len can't be null");
+    //CHECK(rf_frame.payload_len, ESP_ERR_INVALID_ARG, "payload_len can't be null");
 
     rfid_scrambler_t *rfid_scrambler = __containerof(scrambler, rfid_scrambler_t, parent);
     rfid_scrambler->cursor = 0;
     rfid_scrambler->bit_cnt = 0;
     rfid_scrambler_make_carrier_burst(scrambler, rf_frame.carrier_burst_len);
+    rfid_scrambler_make_pasue(scrambler);
     rfid_scrambler_make_preamble(scrambler, rf_frame.preamble_pattern, rf_frame.preamble_len);
-    rfid_scrambler_make_sync(scrambler, rf_frame.sync);
+    rfid_scrambler_make_sync(scrambler, rf_frame.sync, rf_frame.sync_len);
     rfid_scrambler_make_payload(scrambler, rf_frame.payload, rf_frame.payload_len);
     rfid_scrambler_make_crc(scrambler, rf_frame.crc);
     return ESP_OK;

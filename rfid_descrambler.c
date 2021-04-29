@@ -12,9 +12,9 @@
 #include <stdlib.h>
 #include <sys/cdefs.h>
 
-#include "esp_log.h"
 #include "driver/rmt.h"
-#include "ringbuffer.h"
+#include "esp_log.h"
+#include "esp_err.h"
 
 #include "rf_tool.h"
 #include "rf_timings.h"
@@ -46,7 +46,6 @@ typedef struct
  *  STATIC VARIABLES
  **********************/
 static const char *TAG = "rfid_descrambler";
-static ringbuffer_t ringbuffer;
 
 /**********************
  *      MACROS
