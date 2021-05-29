@@ -69,7 +69,8 @@ struct rf_scrambler_s
 struct rf_descrambler_s
 {
     esp_err_t (*input)(rf_descrambler_t *descrambler, void *raw_data, uint32_t length);
-    esp_err_t (*get_scan_code)(rf_descrambler_t *descrambler, uint8_t *signal);
+    esp_err_t (*get_scan_raw_frame)(rf_descrambler_t *descrambler, uint8_t *signal, size_t *signal_size);
+    esp_err_t (*get_scan_data)(rf_descrambler_t *descrambler, uint8_t *signal, size_t signal_len, uint16_t sync, uint8_t *data, size_t data_len);
     esp_err_t (*del)(rf_descrambler_t *decoder);
 };
 

@@ -10,6 +10,7 @@
  *********************/
 #include <stdlib.h>
 
+#include "esp32/rom/crc.h"
 #include "driver/rmt.h"
 #include "esp_log.h"
 #include "esp_err.h"
@@ -107,7 +108,7 @@ static esp_err_t rfid_scrambler_make_pasue(rf_scrambler_t *scrambler)
 static esp_err_t rfid_scrambler_make_byte(rf_scrambler_t *scrambler, void *value, uint8_t len)
 {
     //ESP_LOGD(TAG, "%s", __FUNCTION__);
-    CHECK(len, ESP_ERR_INVALID_ARG, "len can't be null");
+    // CHECK(len, ESP_ERR_INVALID_ARG, "len can't be null");
     rfid_scrambler_t *rfid_scrambler = __containerof(scrambler, rfid_scrambler_t, parent);
 
     uint8_t *pattern = (uint8_t *)value;
@@ -129,7 +130,7 @@ static esp_err_t rfid_scrambler_make_byte(rf_scrambler_t *scrambler, void *value
 static esp_err_t rfid_scrambler_make_carrier_burst(rf_scrambler_t *scrambler, uint8_t carrier_burst_len)
 {
     ESP_LOGD(TAG, "%s", __FUNCTION__);
-    CHECK(carrier_burst_len, ESP_ERR_INVALID_ARG, "carrier_burst_len can't be null");
+    // CHECK(carrier_burst_len, ESP_ERR_INVALID_ARG, "carrier_burst_len can't be null");
     rfid_scrambler_t *rfid_scrambler = __containerof(scrambler, rfid_scrambler_t, parent);
 
     uint8_t carrier_burst_pattern = 0xFF;
@@ -180,6 +181,15 @@ static esp_err_t rfid_scrambler_make_crc(rf_scrambler_t *scrambler, uint16_t crc
     return ESP_OK;
 }
 
+static esp_err_t rfid_scrambler_calc_crc(rf_scrambler_t *scrambler, uint8_t *payload, uint8_t payload_len)
+{
+    ESP_LOGD(TAG, "%s", __FUNCTION__);
+    rfid_scrambler_t *rfid_scrambler = __containerof(scrambler, rfid_scrambler_t, parent);
+    uint16_t crc = crc16_le(UINT16_MAX, (uint8_t const *)payload, payload_len);
+    rfid_scrambler_make_byte(scrambler, &crc, sizeof(crc));
+    return ESP_OK;
+}
+
 static esp_err_t rfid_scrambler_build_frame(rf_scrambler_t *scrambler, rf_frame_t rf_frame)
 {
     ESP_LOGD(TAG, "%s", __FUNCTION__);
@@ -194,7 +204,8 @@ static esp_err_t rfid_scrambler_build_frame(rf_scrambler_t *scrambler, rf_frame_
     rfid_scrambler_make_preamble(scrambler, rf_frame.preamble_pattern, rf_frame.preamble_len);
     rfid_scrambler_make_sync(scrambler, rf_frame.sync, rf_frame.sync_len);
     rfid_scrambler_make_payload(scrambler, rf_frame.payload, rf_frame.payload_len);
-    rfid_scrambler_make_crc(scrambler, rf_frame.crc);
+    rfid_scrambler_calc_crc(scrambler, rf_frame.payload, rf_frame.payload_len);
+    // rfid_scrambler_make_crc(scrambler, rf_frame.crc);
     return ESP_OK;
 }
 
@@ -236,10 +247,10 @@ rf_scrambler_t *rfid_scrambler_create(const rf_scrambler_config_t *config)
 
     rfid_scrambler->pulse_duration_ticks = duration;
     //rfid_scrambler->parent.make_logic = rfid_scrambler_make_logic;
-    rfid_scrambler->parent.make_preamble = rfid_scrambler_make_preamble;
-    rfid_scrambler->parent.make_sync = rfid_scrambler_make_sync;
-    rfid_scrambler->parent.make_payload = rfid_scrambler_make_payload;
-    rfid_scrambler->parent.make_crc = rfid_scrambler_make_crc;
+    // rfid_scrambler->parent.make_preamble = rfid_scrambler_make_preamble;
+    // rfid_scrambler->parent.make_sync = rfid_scrambler_make_sync;
+    // rfid_scrambler->parent.make_payload = rfid_scrambler_make_payload;
+    // rfid_scrambler->parent.make_crc = rfid_scrambler_make_crc;
     rfid_scrambler->parent.build_frame = rfid_scrambler_build_frame;
     rfid_scrambler->parent.get_result = rfid_scrambler_get_result;
     rfid_scrambler->parent.del = rfid_scrambler_del;
