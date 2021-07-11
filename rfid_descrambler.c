@@ -78,7 +78,7 @@ static inline bool rfid_check_bits_in_range(rfid_descrambler_t *descrambler, uin
 
     for (uint8_t i = 1; i <= 8; i++)
     {
-        if ((duration < (descrambler->logic_ticks * i + descrambler->margin_ticks)) && (duration > (descrambler->logic_ticks * i - descrambler->margin_ticks)))
+        if ((duration < (descrambler->logic_ticks + descrambler->margin_ticks) * i) && (duration > (descrambler->logic_ticks - descrambler->margin_ticks) * i))
         {
             *cnt = i;
             return true;
@@ -94,7 +94,7 @@ static inline bool rfid_check_bits_in_range_2(rfid_descrambler_t *descrambler, u
 
     *cnt = duration / descrambler->logic_ticks;
 
-    if ((duration < (descrambler->logic_ticks * *cnt + descrambler->margin_ticks* *cnt)) && (duration > (descrambler->logic_ticks * *cnt - descrambler->margin_ticks* *cnt)))
+    if ((duration < (descrambler->logic_ticks * *cnt + descrambler->margin_ticks * *cnt)) && (duration > (descrambler->logic_ticks * *cnt - descrambler->margin_ticks * *cnt)))
     {
         return true;
     }
@@ -278,6 +278,11 @@ static esp_err_t rfid_descrambler_get_scan_data(rf_descrambler_t *descrambler, u
             shift_bits_right(signal, signal_len, i);
         // shift_bits_left(buff, signal, signal_len, i);
 
+        for (uint16_t j = 0; j < signal_len; j++)
+            printf("%x ", signal[j]);
+
+        printf("\nEnd...\n");
+
         // frame_begin = memmem(buff, signal_len, &sync, sizeof(sync));
         frame_begin = memmem(signal, signal_len, &sync, sizeof(sync));
 
@@ -426,7 +431,9 @@ rf_descrambler_t *rfid_descrambler_create(const rf_descrambler_config_t *config)
 
     uint32_t duration = (uint32_t)(ratio * RFID_PULSE_DURATION_US);
     CHECK((duration < 0x7FFF), ret, "CHANGE DIV CLOCK");
-    ESP_LOGD(TAG, "duration %d", duration);
+
+    ESP_LOGD(TAG, "logic_ticks %d", (uint32_t)(ratio * RFID_PULSE_DURATION_US));
+    ESP_LOGD(TAG, "margin_ticks %d", (uint32_t)(ratio * config->margin_us));
 
     rfid_descrambler->logic_ticks = (uint32_t)(ratio * RFID_PULSE_DURATION_US);
     rfid_descrambler->margin_ticks = (uint32_t)(ratio * config->margin_us);
